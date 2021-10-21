@@ -62,29 +62,65 @@ def get_arguments():
 def read_fasta(fasta_file):
     """Extract the complete genome sequence as a single string
     """
-    pass
+    seq = ""
+    with open(fasta_file) as filin:
+        for line in filin:
+            if line.startswith(">"):
+                continue
+            seq += line[:-1]
+    return seq
 
 def find_start(start_regex, sequence, start, stop):
     """Find the start codon
     """
-    pass
-
+    match = start_regex.search(sequence, start, stop)
+    if match is None:
+        return None
+    return match.start(0)
 
 def find_stop(stop_regex, sequence, start):
     """Find the stop codon
     """
-    pass
+    it_match = stop_regex.finditer(sequence, start)
+    for match in it_match:
+        if (match.start(0) - start) % 3 == 0:
+            return match.start(0)
+    return None
+
+
 
 def has_shine_dalgarno(shine_regex, sequence, start, max_shine_dalgarno_distance):
     """Find a shine dalgarno motif before the start codon
     """
-    pass
+    match = shine_regex.search(sequence, start - max_shine_dalgarno_distance, start)
+    if match is None:
+        return False
+    if start - match.end(0) <= 6:
+        return False
+    return True
+
 
 def predict_genes(sequence, start_regex, stop_regex, shine_regex, 
                   min_gene_len, max_shine_dalgarno_distance, min_gap):
-    """Predict most probable genes
-    """
-    pass
+
+    position_courante = 0
+    l_gene = []
+    while (len(sequence) - position_courante) >= min_gap:
+        position_courante = find_start(start_regex, sequence, position_courante, len(sequence) - 1)
+        if position_courante is not None:
+            stop = find_stop(stop_regex, sequence, position_courante)
+            if stop is not None:
+                if (stop - position_courante) > min_gene_len:
+                    if has_shine_dalgarno(shine_regex, sequence, position_courante, max_shine_dalgarno_distance):
+                            l_gene.append([position_courante + 1, stop + 3])
+                            position_courante = stop + min_gap + 3
+                    else:
+                        position_courante = position_courante + 1
+                else:
+                    position_courante = position_courante + 1
+            else:   
+                position_courante = position_courante + 1
+    return l_gene
 
 
 def write_genes_pos(predicted_genes_file, probable_genes):
@@ -122,10 +158,10 @@ def write_genes(fasta_file, sequence, probable_genes, sequence_rc, probable_gene
         sys.exit("Error cannot open {}".format(fasta_file))
 
 
-def reverse_complement(kmer):
+def reverse_complement(sequence):
     """Get the reverse complement"""
     complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
-    return ''.join([complement[base] for base in kmer[::-1]])
+    return ''.join([complement[base] for base in sequence[::-1]])
 
 
 #==============================================================
@@ -147,16 +183,19 @@ def main():
     # Arguments
     args = get_arguments()
     # Let us do magic in 5' to 3'
-    
-    # Don't forget to uncomment !!!
-    # Call these function in the order that you want
-    # We reverse and complement
-    #sequence_rc = reverse_complement(sequence)
-    # Call to output functions
-    #write_genes_pos(args.predicted_genes_file, probable_genes)
-    #write_genes(args.fasta_file, sequence, probable_genes, sequence_rc, probable_genes_comp)
-
-
-
+    seq = read_fasta("data/listeria.fna")
+    l_gene = predict_genes(seq, start_regex, stop_regex, shine_regex, 
+                  args.min_gene_len, args.max_shine_dalgarno_distance, args.min_gap)
+    l_gen_reverse = predict_genes(reverse_complement(seq), start_regex, stop_regex, shine_regex, 
+                  args.min_gene_len, args.max_shine_dalgarno_distance, args.min_gap)
+    print(len(l_gene), len(l_gen_reverse))
+    for gene in l_gen_reverse:
+        gene[0] = len(seq) - gene[0] + 1
+        gene[1] = len(seq) - gene[1] + 1
+        gene.reverse()
+    l_gen_reverse.reverse()
+    print(l_gen_reverse[:10])
+    l = (l_gene + l_gen_reverse)
+    write_genes_pos(args.predicted_genes_file, l)
 if __name__ == '__main__':
     main()
